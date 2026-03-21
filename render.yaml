@@ -1,0 +1,25 @@
+services:
+  # Python solver (FastAPI + OR-Tools)
+  - type: web
+    name: courseflow-solver
+    runtime: python
+    rootDir: solver
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+
+  # Node server (Express API + serves built frontend)
+  - type: web
+    name: courseflow-web
+    runtime: node
+    buildCommand: cd frontend && npm install && npm run build && cd ../server && npm install && npm run build
+    startCommand: node server/dist/index.js
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SOLVER_URL
+        sync: false  # Set to the courseflow-solver URL, e.g. https://courseflow-solver.onrender.com
