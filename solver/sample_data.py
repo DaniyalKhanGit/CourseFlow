@@ -263,6 +263,37 @@ COURSES: list[Course] = [
 ]
 
 
+# Estimated walking time in minutes between buildings.
+# Keys are frozensets of building short names (extracted from room strings).
+# If a pair is missing, assume a default of 5 minutes.
+BUILDING_TRAVEL_MINUTES: dict[frozenset[str], int] = {
+    frozenset({"BURN", "MAAS"}): 7,
+    frozenset({"BURN", "ENGM"}): 10,
+    frozenset({"BURN", "ARTS"}): 8,
+    frozenset({"MAAS", "ENGM"}): 6,
+    frozenset({"MAAS", "ARTS"}): 9,
+    frozenset({"ENGM", "ARTS"}): 12,
+}
+
+DEFAULT_TRAVEL_MINUTES = 5
+
+
+def get_building(room: str) -> str:
+    """Extract building short name from a room string like 'BURN 1B24'."""
+    return room.split()[0] if room else ""
+
+
+def get_travel_minutes(room_a: str, room_b: str) -> int:
+    """Return estimated walking time in minutes between two rooms."""
+    bld_a = get_building(room_a)
+    bld_b = get_building(room_b)
+    if bld_a == bld_b:
+        return 0
+    return BUILDING_TRAVEL_MINUTES.get(
+        frozenset({bld_a, bld_b}), DEFAULT_TRAVEL_MINUTES
+    )
+
+
 def get_courses_by_ids(course_ids: list[str]) -> list[Course]:
     """Return courses matching the given IDs."""
     return [c for c in COURSES if c.course_id in course_ids]

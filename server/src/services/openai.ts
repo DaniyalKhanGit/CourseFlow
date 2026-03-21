@@ -143,7 +143,7 @@ export async function generateExplanation(
   const newSummary = newSchedule
     .map(
       (s) =>
-        `${s.course_name} (${s.section_id}): ${s.days.join('/')} ${s.start_time}-${s.end_time}, ${s.professor} (${s.professor_rating ?? 'no rating'})`,
+        `${s.course_name} (${s.section_id}): ${s.days.join('/')} ${s.start_time}-${s.end_time}, ${s.professor} (${s.professor_rating ?? 'no rating'}), room: ${(s as any).room ?? 'unknown'}`,
     )
     .join('\n');
 
@@ -167,14 +167,14 @@ ${newSummary}
 
 Active preferences: ${JSON.stringify(preferences)}
 
-Explain what changed and any real tradeoffs (e.g., different professor, rating change, earlier/later times). Be specific about the actual sections that moved. 2-3 sentences max.`;
+Explain what changed and any real tradeoffs (e.g., different professor, rating change, earlier/later times, travel time between buildings). If two consecutive classes are in different buildings with a short gap, mention that. Be specific about the actual sections that moved. 2-3 sentences max.`;
   } else {
     prompt = `New schedule generated:
 ${newSummary}
 
 Active preferences: ${JSON.stringify(preferences)}
 
-Briefly describe this schedule's highlights and any tradeoffs. Mention specific professors and times. 2-3 sentences max.`;
+Briefly describe this schedule's highlights and any tradeoffs. Mention specific professors, times, and any tight building-to-building transitions. 2-3 sentences max.`;
   }
 
   const response = await openai.chat.completions.create({

@@ -17,7 +17,7 @@ router.get('/courses', async (_req: Request, res: Response) => {
 
 /** POST /api/solve — find ranked schedules for selected courses */
 router.post('/solve', async (req: Request, res: Response) => {
-  const { course_ids, preferences } = req.body;
+  const { course_ids, preferences, required_ids, wanted_ids, blocked_slots } = req.body;
 
   if (!Array.isArray(course_ids) || course_ids.length === 0) {
     res.status(400).json({ error: 'course_ids must be a non-empty array' });
@@ -28,7 +28,7 @@ router.post('/solve', async (req: Request, res: Response) => {
     const resp = await fetch(`${SOLVER_URL}/solve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ course_ids, preferences }),
+      body: JSON.stringify({ course_ids, preferences, required_ids, wanted_ids, blocked_slots }),
     });
     const data = await resp.json();
 

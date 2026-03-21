@@ -1,11 +1,10 @@
-import type { Section } from '../types';
+import type { Section, BlockedSlot } from '../types';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 const START_HOUR = 8;
 const END_HOUR = 18;
 const HOURS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i);
 
-// Muted pastel colors per course
 const COURSE_COLORS: Record<string, { bg: string; accent: string }> = {
   COMP250: { bg: '#e8f0fe', accent: '#4285f4' },
   MATH240: { bg: '#e6f4ea', accent: '#34a853' },
@@ -31,27 +30,25 @@ function formatHour(hour: number): string {
 
 interface Props {
   sections: Section[];
+  blockedSlots?: BlockedSlot[];
   isLoading?: boolean;
+  hasGenerated?: boolean;
+  onBlockClick?: (section: Section) => void;
 }
 
-export default function Calendar({ sections, isLoading }: Props) {
+export default function Calendar({ sections, blockedSlots = [], isLoading, hasGenerated, onBlockClick }: Props) {
   const totalMinutes = (END_HOUR - START_HOUR) * 60;
 
   return (
     <div className="calendar">
-      {/* Header row with day names */}
       <div className="calendar-header">
         <div className="calendar-time-gutter" />
         {DAYS.map((day) => (
-          <div key={day} className="calendar-day-header">
-            {day}
-          </div>
+          <div key={day} className="calendar-day-header">{day}</div>
         ))}
       </div>
 
-      {/* Grid body */}
       <div className={`calendar-body ${isLoading ? 'calendar-loading' : ''}`}>
-        {/* Time labels */}
         <div className="calendar-time-gutter">
           {HOURS.map((hour) => (
             <div
@@ -64,10 +61,8 @@ export default function Calendar({ sections, isLoading }: Props) {
           ))}
         </div>
 
-        {/* Day columns */}
         {DAYS.map((day) => (
           <div key={day} className="calendar-day-column">
-            {/* Hour grid lines */}
             {HOURS.map((hour) => (
               <div
                 key={hour}
@@ -75,6 +70,25 @@ export default function Calendar({ sections, isLoading }: Props) {
                 style={{ top: `${((hour - START_HOUR) / (END_HOUR - START_HOUR)) * 100}%` }}
               />
             ))}
+
+            {/* Blocked slot overlays */}
+            {blockedSlots
+              .filter((slot) => slot.days.includes(day))
+              .map((slot, idx) => {
+                const start = timeToMinutes(slot.start_time) - START_HOUR * 60;
+                const end = timeToMinutes(slot.end_time) - START_HOUR * 60;
+                const top = (start / totalMinutes) * 100;
+                const height = ((end - start) / totalMinutes) * 100;
+                return (
+                  <div
+                    key={`blocked-${idx}`}
+                    className="calendar-blocked"
+                    style={{ top: `${top}%`, height: `${height}%` }}
+                  >
+                    <span className="calendar-blocked-label">Blocked</span>
+                  </div>
+                );
+              })}
 
             {/* Section blocks */}
             {sections
@@ -95,8 +109,9 @@ export default function Calendar({ sections, isLoading }: Props) {
                       height: `${height}%`,
                       backgroundColor: colors.bg,
                       borderLeft: `4px solid ${colors.accent}`,
+                      cursor: onBlockClick ? 'pointer' : 'default',
                     }}
-                    title={`${section.course_name}\n${section.professor} (${section.professor_rating ?? 'No rating'})\n${section.start_time}–${section.end_time}\n${section.room}`}
+                    onClick={() => onBlockClick?.(section)}
                   >
                     <span className="calendar-block-course">{section.course_id}</span>
                     <span className="calendar-block-detail">
@@ -117,7 +132,9 @@ export default function Calendar({ sections, isLoading }: Props) {
         {/* Empty state */}
         {sections.length === 0 && !isLoading && (
           <div className="calendar-empty">
-            Add courses to generate schedules
+            {hasGenerated
+              ? 'No valid schedules found. Try adjusting courses or constraints.'
+              : 'Select courses and click Generate Schedule'}
           </div>
         )}
       </div>

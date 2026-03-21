@@ -3,44 +3,42 @@ import Calendar from './components/Calendar';
 import LeftSidebar from './components/LeftSidebar';
 import RightSidebar from './components/RightSidebar';
 import PromptBar from './components/PromptBar';
+import BlockDetail from './components/BlockDetail';
 import { fetchCourses, solveSchedules, reoptimize } from './api/client';
-import type { Course, Schedule, Preferences } from './types';
+import type { Course, CourseSelection, BlockedSlot, Schedule, Preferences, Section } from './types';
 import './App.css';
 
 function App() {
   const [courses, setCourses] = useState<Course[]>([]);
-  const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
+  const [selections, setSelections] = useState<CourseSelection[]>([]);
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [activeScheduleIndex, setActiveScheduleIndex] = useState(0);
   const [preferences, setPreferences] = useState<Preferences>({});
   const [explanation, setExplanation] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasGenerated, setHasGenerated] = useState(false);
+  const [selectedBlock, setSelectedBlock] = useState<Section | null>(null);
 
-  // Load available courses on mount
   useEffect(() => {
     fetchCourses()
       .then(setCourses)
       .catch(() => setError('Failed to load courses. Is the server running?'));
   }, []);
 
-  // Solve whenever selected courses change
-  const handleSolve = useCallback(async (courseIds: string[]) => {
-    if (courseIds.length === 0) {
-      setSchedules([]);
-      setExplanation(null);
-      setError(null);
-      return;
-    }
+  const handleGenerate = useCallback(async () => {
+    if (selections.length === 0) return;
 
     setIsLoading(true);
     setError(null);
     try {
-      const result = await solveSchedules(courseIds, preferences);
+      const result = await solveSchedules(selections, preferences, blockedSlots);
       setSchedules(result.schedules);
       setActiveScheduleIndex(0);
+      setHasGenerated(true);
       if (result.schedules.length === 0) {
-        setExplanation('No valid schedules found. Try removing a course or relaxing constraints.');
+        setExplanation('No valid schedules found. Try removing a course, changing priorities, or adjusting blocked times.');
       } else {
         setExplanation(result.explanation ?? null);
       }
@@ -49,34 +47,23 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [preferences]);
-
-  const handleToggleCourse = useCallback(
-    (courseId: string) => {
-      const next = selectedCourseIds.includes(courseId)
-        ? selectedCourseIds.filter((id) => id !== courseId)
-        : [...selectedCourseIds, courseId];
-      setSelectedCourseIds(next);
-      handleSolve(next);
-    },
-    [selectedCourseIds, handleSolve],
-  );
+  }, [selections, preferences, blockedSlots]);
 
   const handlePrompt = useCallback(
     async (prompt: string) => {
-      if (selectedCourseIds.length === 0) return;
+      if (selections.length === 0) return;
 
       setIsLoading(true);
       setError(null);
-      const currentSections =
-        schedules[activeScheduleIndex]?.sections ?? null;
+      const currentSections = schedules[activeScheduleIndex]?.sections ?? null;
 
       try {
         const result = await reoptimize(
           prompt,
-          selectedCourseIds,
+          selections,
           preferences,
           currentSections,
+          blockedSlots,
         );
         setSchedules(result.schedules);
         setPreferences(result.preferences);
@@ -88,7 +75,7 @@ function App() {
         setIsLoading(false);
       }
     },
-    [selectedCourseIds, schedules, activeScheduleIndex, preferences],
+    [selections, schedules, activeScheduleIndex, preferences, blockedSlots],
   );
 
   const activeSections = schedules[activeScheduleIndex]?.sections ?? [];
@@ -96,15 +83,19 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1 className="app-title">ScheduleAI</h1>
-        <span className="app-subtitle">AI-Powered Schedule Optimizer</span>
+        <h1 className="app-title">CourseFlow</h1>
+        <span className="app-subtitle">Schedule Advisor</span>
       </header>
 
       <div className="app-body">
         <LeftSidebar
           courses={courses}
-          selectedCourseIds={selectedCourseIds}
-          onToggleCourse={handleToggleCourse}
+          selections={selections}
+          onUpdateSelections={setSelections}
+          blockedSlots={blockedSlots}
+          onUpdateBlockedSlots={setBlockedSlots}
+          onGenerate={handleGenerate}
+          hasGenerated={hasGenerated}
           schedules={schedules}
           activeScheduleIndex={activeScheduleIndex}
           onSelectSchedule={setActiveScheduleIndex}
@@ -112,7 +103,13 @@ function App() {
         />
 
         <main className="app-main">
-          <Calendar sections={activeSections} isLoading={isLoading} />
+          <Calendar
+            sections={hasGenerated ? activeSections : []}
+            blockedSlots={blockedSlots}
+            isLoading={isLoading}
+            hasGenerated={hasGenerated}
+            onBlockClick={hasGenerated ? setSelectedBlock : undefined}
+          />
         </main>
 
         <RightSidebar
@@ -125,8 +122,12 @@ function App() {
       <PromptBar
         onSubmit={handlePrompt}
         isLoading={isLoading}
-        disabled={selectedCourseIds.length === 0}
+        disabled={!hasGenerated || selections.length === 0}
       />
+
+      {selectedBlock && (
+        <BlockDetail section={selectedBlock} onClose={() => setSelectedBlock(null)} />
+      )}
     </div>
   );
 }

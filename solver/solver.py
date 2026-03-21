@@ -7,7 +7,7 @@ then finds all valid (non-overlapping) schedules ranked by a weighted objective.
 
 from ortools.sat.python import cp_model
 
-from sample_data import Section, Course
+from sample_data import Section, Course, get_travel_minutes
 
 
 # Map days to integers for overlap checking
@@ -115,19 +115,65 @@ def _score_schedule(
         )
         score += (days_off_achieved / len(prefs.prefer_days_off)) * 10.0
 
+    # Travel time penalty (-15 to 0 points)
+    # Penalize tight transitions between buildings
+    travel_penalty = 0.0
+    for day in ["Mon", "Tue", "Wed", "Thu", "Fri"]:
+        day_sections = sorted(
+            [s for s in sections if day in s.days],
+            key=lambda s: time_to_minutes(s.start_time),
+        )
+        for i in range(1, len(day_sections)):
+            gap_min = time_to_minutes(day_sections[i].start_time) - time_to_minutes(
+                day_sections[i - 1].end_time
+            )
+            travel = get_travel_minutes(day_sections[i - 1].room, day_sections[i].room)
+            if travel > 0:
+                slack = gap_min - travel
+                if slack < 0:
+                    # Impossible transition — heavy penalty
+                    travel_penalty += 10
+                elif slack < 5:
+                    # Very tight — moderate penalty
+                    travel_penalty += 3
+                elif slack < 10:
+                    # Somewhat tight — small penalty
+                    travel_penalty += 1
+    score -= min(travel_penalty, 15.0)
+
     return round(max(0, min(100, score)), 2)
+
+
+def _section_hits_blocked(section: Section, blocked_slots: list[dict]) -> bool:
+    """Check if a section overlaps with any blocked time slot."""
+    for slot in blocked_slots:
+        shared_days = set(section.days) & set(slot["days"])
+        if not shared_days:
+            continue
+        s_start = time_to_minutes(section.start_time)
+        s_end = time_to_minutes(section.end_time)
+        b_start = time_to_minutes(slot["start_time"])
+        b_end = time_to_minutes(slot["end_time"])
+        if s_start < b_end and b_start < s_end:
+            return True
+    return False
 
 
 def solve_schedules(
     courses: list[Course],
     prefs: Preferences | None = None,
     max_results: int = 5,
+    required_ids: list[str] | None = None,
+    wanted_ids: list[str] | None = None,
+    blocked_slots: list[dict] | None = None,
 ) -> list[dict]:
     """
-    Find all valid schedules (no time conflicts) for the given courses,
-    rank them by preferences, and return the top N.
+    Find valid schedules for the given courses, respecting required/wanted
+    distinction and blocked time slots.
 
-    Uses OR-Tools CP-SAT solver to enumerate valid combinations.
+    - Required courses must appear in every schedule.
+    - Wanted courses are included when possible (best-effort).
+    - Blocked time slots are hard constraints — no section may overlap them.
     """
     if prefs is None:
         prefs = Preferences()
@@ -135,9 +181,50 @@ def solve_schedules(
     if not courses:
         return []
 
+    blocked_slots = blocked_slots or []
+    required_ids = set(required_ids or [])
+    wanted_ids = set(wanted_ids or [])
+
+    # If neither is specified, treat all as required (backward compat)
+    if not required_ids and not wanted_ids:
+        required_ids = {c.course_id for c in courses}
+
+    required_courses = [c for c in courses if c.course_id in required_ids]
+    wanted_courses = [c for c in courses if c.course_id in wanted_ids]
+
+    # Try with all courses first, then drop wanted courses on failure
+    best_results = _solve_inner(
+        required_courses + wanted_courses, prefs, max_results, blocked_slots
+    )
+
+    # If no results and there are wanted courses, try dropping wanted one at a time
+    if not best_results and wanted_courses:
+        # Try with just required
+        best_results = _solve_inner(required_courses, prefs, max_results, blocked_slots)
+
+    # Tag sections with required/wanted status
+    for result in best_results:
+        for section in result["sections"]:
+            section["priority"] = (
+                "required" if section["course_id"] in required_ids else "wanted"
+            )
+
+    return best_results
+
+
+def _solve_inner(
+    courses: list[Course],
+    prefs: Preferences,
+    max_results: int,
+    blocked_slots: list[dict],
+) -> list[dict]:
+    """Core solver: find all valid non-overlapping schedules."""
+    if not courses:
+        return []
+
     # Build a flat list of all sections with their course index
     all_sections: list[Section] = []
-    course_section_ranges: list[tuple[int, int]] = []  # (start_idx, end_idx) per course
+    course_section_ranges: list[tuple[int, int]] = []
 
     for course in courses:
         start = len(all_sections)
@@ -146,7 +233,6 @@ def solve_schedules(
 
     model = cp_model.CpModel()
 
-    # One boolean var per section: is this section selected?
     section_vars = [
         model.new_bool_var(f"sec_{i}_{all_sections[i].section_id}")
         for i in range(len(all_sections))
@@ -159,7 +245,6 @@ def solve_schedules(
     # Constraint 2: No time overlaps between selected sections
     for i in range(len(all_sections)):
         for j in range(i + 1, len(all_sections)):
-            # Skip sections from the same course (already handled by exactly-one)
             same_course = any(
                 start <= i < end and start <= j < end
                 for start, end in course_section_ranges
@@ -167,7 +252,38 @@ def solve_schedules(
             if same_course:
                 continue
             if sections_overlap(all_sections[i], all_sections[j]):
-                # At most one of these can be selected
+                model.add(section_vars[i] + section_vars[j] <= 1)
+
+    # Constraint 3: Blocked time slots — disallow any section that overlaps
+    for i, section in enumerate(all_sections):
+        if _section_hits_blocked(section, blocked_slots):
+            model.add(section_vars[i] == 0)
+
+    # Constraint 4: Travel time — reject pairs where gap < travel time
+    for i in range(len(all_sections)):
+        for j in range(i + 1, len(all_sections)):
+            # Only constrain sections from different courses
+            same_course = any(
+                start <= i < end and start <= j < end
+                for start, end in course_section_ranges
+            )
+            if same_course:
+                continue
+            shared_days = set(all_sections[i].days) & set(all_sections[j].days)
+            if not shared_days:
+                continue
+            travel = get_travel_minutes(all_sections[i].room, all_sections[j].room)
+            if travel == 0:
+                continue
+            # Check both orderings (i before j, j before i)
+            i_end = time_to_minutes(all_sections[i].end_time)
+            j_start = time_to_minutes(all_sections[j].start_time)
+            j_end = time_to_minutes(all_sections[j].end_time)
+            i_start = time_to_minutes(all_sections[i].start_time)
+            # If i ends before j starts but gap < travel, they can't coexist
+            if i_end <= j_start and (j_start - i_end) < travel:
+                model.add(section_vars[i] + section_vars[j] <= 1)
+            elif j_end <= i_start and (i_start - j_end) < travel:
                 model.add(section_vars[i] + section_vars[j] <= 1)
 
     # Enumerate all solutions
@@ -187,7 +303,6 @@ def solve_schedules(
     collector = SolutionCollector()
     solver.solve(model, collector)
 
-    # Score and rank solutions
     results = []
     for solution_indices in collector.solutions:
         sections = [all_sections[i] for i in solution_indices]
@@ -199,6 +314,5 @@ def solve_schedules(
             }
         )
 
-    # Sort by score descending, take top N
     results.sort(key=lambda r: r["score"], reverse=True)
     return results[:max_results]

@@ -9,12 +9,24 @@ export interface Section {
   start_time: string;
   end_time: string;
   room: string;
+  priority?: 'required' | 'wanted';
 }
 
 export interface Course {
   course_id: string;
   course_name: string;
   sections: Section[];
+}
+
+export interface CourseSelection {
+  course_id: string;
+  priority: 'required' | 'wanted';
+}
+
+export interface BlockedSlot {
+  days: string[];
+  start_time: string;
+  end_time: string;
 }
 
 export interface Schedule {

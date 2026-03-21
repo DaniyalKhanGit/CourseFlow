@@ -18,7 +18,7 @@ const SOLVER_URL = process.env.SOLVER_URL || 'http://localhost:8000';
  * 4. Generate explanation comparing old vs new schedule
  */
 router.post('/reoptimize', async (req: Request, res: Response) => {
-  const { prompt, course_ids, current_preferences, current_schedule } = req.body;
+  const { prompt, course_ids, required_ids, wanted_ids, blocked_slots, current_preferences, current_schedule } = req.body;
 
   if (!prompt || typeof prompt !== 'string') {
     res.status(400).json({ error: 'prompt is required' });
@@ -38,7 +38,7 @@ router.post('/reoptimize', async (req: Request, res: Response) => {
     const solverResp = await fetch(`${SOLVER_URL}/solve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ course_ids, preferences: updatedPrefs }),
+      body: JSON.stringify({ course_ids, required_ids, wanted_ids, blocked_slots, preferences: updatedPrefs }),
     });
     const solverData = await solverResp.json();
 
@@ -79,6 +79,7 @@ router.post('/reoptimize', async (req: Request, res: Response) => {
           body: JSON.stringify({
             course_ids,
             preferences: current_preferences || {},
+            required_ids, wanted_ids, blocked_slots,
           }),
         });
         const solverData = await solverResp.json();
