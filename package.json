@@ -1,0 +1,14 @@
+{
+  "name": "machacks26",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:server\" \"npm run dev:solver\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:server": "cd server && npm run dev",
+    "dev:solver": "cd solver && ./venv/Scripts/uvicorn main:app --reload --port 8000",
+    "install:all": "npm install && cd frontend && npm install && cd ../server && npm install && cd ../solver && python -m venv venv && ./venv/Scripts/pip install -r requirements.txt"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
