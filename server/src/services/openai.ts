@@ -41,6 +41,7 @@ export async function parsePreferences(
     return fallbackParsePreferences(prompt, currentPreferences);
   }
 
+  try {
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     temperature: 0,
@@ -115,6 +116,10 @@ Return ONLY valid JSON. Only include fields the user wants to change.`,
   }
 
   return validated;
+  } catch (err) {
+    console.error('OpenAI parsePreferences failed, using fallback:', err instanceof Error ? err.message : err);
+    return fallbackParsePreferences(prompt, currentPreferences);
+  }
 }
 
 interface ScheduleSection {
